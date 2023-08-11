@@ -1,0 +1,151 @@
+library(trialr)
+library(escalation)
+library(dfcrm)
+library(dtpcrm)
+library(rstan)
+library(ggplot2)
+library(dplyr)
+
+target <- 0.2
+y <- 0.72
+x <- 0.1
+prior.DLT <- c(0.03, 0.07, 0.12, 0.20, 0.30, 0.40, 0.52)
+prior.var <- 0.75
+
+S1 <- c(0.03, 0.05, 0.07, 0.20, 0.36, 0.45, 0.55)
+S2 <- c(0.005, 0.01, 0.03, 0.05, 0.07, 0.20, 0.36)
+S3 <- c(0.45, 0.55, 0.65, 0.7, 0.75, 0.80, 0.85)
+
+#S1 Simulation
+model1 <- get_dfcrm(skeleton = prior.DLT, target = target,
+                    model = "empiric", scale = sqrt(prior.var)) %>%
+  dont_skip_doses(TRUE, FALSE) %>%
+  stop_when_too_toxic(dose = 1, tox_threshold = 0.3, confidence = 0.72) %>%
+  stop_when_n_at_dose(n = 12, dose = "recommended") %>%
+  stop_at_n(n = 21)
+sim1 <- model1 %>% simulate_trials(num_sims = 100,
+                                   true_prob_tox = S1,
+                                   next_dose = 3,
+                                   set.seed(1000))
+mean.at.dose1 <- apply(n_at_dose(sim1), 2, mean)
+
+table1 <- rbind("Prior DLT rate" = c(0, prior.DLT),
+                "S1 True DLT Rate" = c(0, S1),
+                "S1 Selection Probability" = prob_recommend(sim1),
+                "S1 Mean No.Subjects" = c(0, mean.at.dose1))
+table1
+
+#S2 Simulation
+model2 <- get_dfcrm(skeleton = prior.DLT, target = target,
+                    model = "empiric", scale = sqrt(prior.var)) %>%
+  dont_skip_doses(TRUE, FALSE) %>%
+  stop_when_too_toxic(dose = 1, tox_threshold = 0.3, confidence = 0.72) %>%
+  stop_when_n_at_dose(n = 12, dose = "recommended") %>%
+  stop_at_n(n = 21)
+sim2 <- model2 %>% simulate_trials(num_sims = 100,
+                                   true_prob_tox = S2,
+                                   next_dose = 3,
+                                   set.seed(1000))
+mean.at.dose2 <- apply(n_at_dose(sim2), 2, mean)
+
+table2 <- rbind("S2 True DLT Rate" = c(0, S1),
+                "S2 Selection Probability" = prob_recommend(sim2),
+                "S2 Mean No.Subjects" = c(0, mean.at.dose2))
+table2
+
+#S3 Simulation
+model3 <- get_dfcrm(skeleton = prior.DLT, target = target,
+                    model = "empiric", scale = sqrt(prior.var)) %>%
+  dont_skip_doses(TRUE, FALSE) %>%
+  stop_when_too_toxic(dose = 1, tox_threshold = 0.3, confidence = 0.72) %>%
+  stop_when_n_at_dose(n = 12, dose = "recommended") %>%
+  stop_at_n(n = 21)
+sim3 <- model3 %>% simulate_trials(num_sim = 100,
+                                   true_prob_tox = S3,
+                                   next_dose = 3,
+                                   set.seed(1000))
+mean.at.dose3 <- apply(n_at_dose(sim3), 2, mean)
+
+table3 <- rbind("S3 True DLT Rate" = c(0, S1),
+                "S3 Selection Probability" = prob_recommend(sim3),
+                "S3 Mean No.Subjects" = c(0, mean.at.dose3))
+table3
+
+table <- rbind(table1, table2, table3)
+table
+
+##Viola
+#Viola Dose Transition pathways - 4 Initial Cohorts
+viola <- get_dfcrm(skeleton = prior.DLT, target = target,
+                   model = "empiric", scale = sqrt(prior.var)) %>%
+  dont_skip_doses(TRUE, FALSE)
+viola_dtps <- viola %>%
+  get_dose_paths(next_dose = 3, cohort_sizes = c(3, 3, 3, 3))
+viola_dtps %>% graph_paths(viridis_palette = "viridis")
+
+#Viola Dose Transition pathways - 3 Initial Cohorts
+viola_dtps3 <- viola %>% get_dose_paths(next_dose = 3, cohort_sizes = c(3, 3))
+viola_dtps3 %>% graph_paths(viridis_palette = "viridis")
+
+##Trial Conduct with DTP
+C2 <- get_dfcrm(skeleton = prior.DLT, target = target, model = "empiric",
+                scale = sqrt(prior.var)) %>%
+  dont_skip_doses(TRUE, FALSE)
+
+cbind("Dose" = 1:7,
+      "Prior DLT" = prior.DLT,
+      "No.subjects" = n_at_dose(fit),
+      "No.DLT" = tox_at_dose(fit))
+
+#posterior DLT prob? 2nd cohort
+fit <- viola %>% fit("3NNN 4NNN")
+RD <- viola %>%
+  fit("3NNN 4NNN") %>%
+  recommended_dose() #Recommended dose for next cohort
+
+prob.tox <- viola %>% fit("3NNN 4NNN") %>% prob_tox_samples()
+mean.post.dlt <- lapply(prob.tox[, 2:8], mean)
+median <- viola %>% fit("3NNN 4NNN") %>% median_prob_tox()
+median.post.dlt <- lapply(prob.tox[, 2:8], median)
+lower.post.dlt <- sapply(prob.tox[, 2:8], quantile, probs = 0.05)
+upper.post.dlt <- sapply(prob.tox[, 2:8], quantile, probs = 0.95)
+out <- cbind("Dose" = -2:4, "Prior DLT" = prior.DLT,
+             "No.subjects" = n_at_dose(fit),
+             "No.DLT" = tox_at_dose(fit),
+             "Posterior DLT" = median,
+             "Posterior DLT samples" = median.post.dlt,
+             "5%" = lower.post.dlt, "95%" = upper.post.dlt)
+out
+
+#posterior DLT prob? 1st cohort (for graph)
+fit1 <- viola %>% fit("3NNN")
+prob.tox1 <- viola %>% fit("3NNN") %>% prob_tox_samples()
+mean.post.dlt1 <- lapply(prob.tox1[, 2:8], mean)
+median.post.dlt1 <- lapply(prob.tox1[, 2:8], median)
+lower.post.dlt1 <- sapply(prob.tox1[, 2:8], quantile, probs = 0.05)
+upper.post.dlt1 <- sapply(prob.tox1[, 2:8], quantile, probs = 0.95)
+out1 <- cbind("Dose" = -2:4, "Prior DLT" = prior.DLT,
+              "No.subjects" = n_at_dose(fit1),
+              "No.DLT" = tox_at_dose(fit1),
+              "Posterior DLT" = median.post.dlt1,
+              "5%" = lower.post.dlt, "95%" = upper.post.dlt)
+data <- cbind(prior.DLT, median.post.dlt1, median.post.dlt)
+
+matplot(x = -2:4, data, type = "b", pch = 1, col = 1:3,
+        xlab = "Dose Level", ylab = "Probability of DLT")
+matlines(x = -2:4, y = rep(0.2, 7), lty = 2)
+legend("topleft",
+       legend = c("Prior", "Cohort 1", "Cohort 2"), col = 1:3, pch = 1)
+
+##Update DTP for Subsequent Cohorts
+dtp_C3 <- viola %>%
+  get_dose_paths(cohort_sizes = c(3, 3), previous_outcomes = "3NNN 4NNN")
+#DTP diagram for cohorts 3-5?
+dtp_C3 %>% graph_paths(viridis_palette = "viridis")
+
+DTP2 <- subset(spread_paths(as_tibble(dtp_C3)),
+               select = c(next_dose0,
+                          outcomes1, next_dose1,
+                          outcomes2, next_dose2,
+                          outcomes3, next_dose3))
+DTP2
