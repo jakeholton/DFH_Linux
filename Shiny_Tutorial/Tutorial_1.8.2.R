@@ -14,4 +14,3 @@ server <- function(input, output, session) {
 
 shinyApp(ui, server)
 
-#shiny::runApp("\\\\wsl.localhost\\Ubuntu\\home\\jholton\\DFH_Linux\\Tutorial_1.8.2.R")
