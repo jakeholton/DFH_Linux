@@ -5,8 +5,17 @@ ui <- fluidPage(
   textOutput("greeting")
 )
 
+#server <- function(input, output, server) {
+ # output$greeting <- renderText(paste0("Hello ", input$name))
+#}
+
+#server <- function(input, output, server) {
+ # greeting <- reactive(paste0("Hello ", input$name))
+  #output$greeting <- renderText(greeting())
+#}
+
 server <- function(input, output, server) {
-  output$greeting <- renderText(paste0("Hello ", name))
+  output$greeting <- reactive(paste0("Hello ", input$name))
 }
 
 shinyApp(ui, server)
